@@ -4,9 +4,8 @@ from slack_bolt.adapter.flask import SlackRequestHandler
 import requests
 import re
 import attractions
+import os
 
-SLACK_TOKEN = "xoxb-5817394942737-5790226507639-yR8GjqScVYXCVSq71AZHSiER"
-SIGNING_SECRET = "b2d6813296153e31455aff7c555e3230"
 url = "https://api.wit.ai/message"
 
 
@@ -14,9 +13,13 @@ conversation_states = {}
 
 
 app = App(
-    token=SLACK_TOKEN,
-    signing_secret=SIGNING_SECRET
+    token="",
+    signing_secret="",
 )
+
+headers = {
+    'Authorization':'Bearer '
+}
 
 
 # Step 1: Introduction and Greeting
@@ -26,21 +29,9 @@ def greet_and_get_names(body, say, logger):
     event = body.get('event')
     user_id = event.get('user')
     channel = event.get('channel')
+    print("run")
 
-    # if channel not in conversation_states:
-    #     conversation_states[channel] = {"users": [], "step": 1}
-
-    # if user_id not in conversation_states[channel]["users"]:
-    #     conversation_states[channel]["users"].append(user_id)
-
-    #     if len(conversation_states[channel]["users"]) == 1:
-    #         response = f"Hello, <@{user_id}>! Please introduce yourself."
-    #     else:
-    #         response = f"Hello, <@{user_id}>! Please introduce yourself as well."
-
-    #     app.client.chat_postMessage(channel=channel, text=response)
-
-    if channel not in conversation_states[channel]:
+    if channel not in conversation_states:
         conversation_states[channel] = {}
     
     if user_id not in conversation_states[channel]:
@@ -49,55 +40,64 @@ def greet_and_get_names(body, say, logger):
          say(response)
 
 
-# # Step 2: Initial Inquiry
-# @app.message(re.compile(".*name.*"))
-# def initial_inquiry(payload, say):
-#     channel = payload["channel"]
-#     user_id = payload["user"]
-#     user_state = conversation_states.get(channel)
-
-#     if user_state and user_id in user_state["users"] and user_state["step"] == 1:
-#         user_state["step"] = 1.5
-#         say(f"What do you need or expect from your trip to the UAE? <@{user_id}>")
+@app.event("message")
+def handle_message(payload, say):
+    channel = payload["channel"]
+    user_id = payload["user"]
+    msg = payload['text']
+    # check intent
+    response = requests.get('https://api.wit.ai/message', params= {
+        'q': msg
+    }, headers = headers).json()
+    intents = response['intents']
+    entities = response['entities']
+    print(intents, "\n")
+    print(type(entities), "\n")
+    sorted_intents = sorted(intents, key= lambda x: x['confidence'])
+    if (len(sorted_intents) == 0):
+        return say("Please rephrase, I could not understand")
+    if (sorted_intents[len(sorted_intents) -1]['confidence'] > 0.8):
+        intent = sorted_intents[len(sorted_intents) - 1]['name']
+        if (intent == 'INTERST_INTENT'):
+            return handle_interest(user_id, entities, sorted_intents, msg, channel, say)
+        elif (intent == 'SUGGEST_INTENTS'):
+            return handle_suggest(user_id, entities, sorted_intents, msg, channel, say)
+        elif (intent == 'BUDGET_INTENTS'):
+            return handle_budget(user_id, entities, sorted_intents, msg, channel)
+        
 
 
 # Step 3: Interest and Preferences
-@app.message(re.compile(r".*interest.*"))
-def get_interests(payload, say):
-    channel = payload["channel"]
-    user_id = payload["user"]
+def handle_interest(user, entities, sorted_intents, msg, channel, say):
     user_state = conversation_states.get(channel)
-
     # check if user has mentioned bot
-    if (user_state and user_state[user_id]):
-        if (user_state[user_id]['step'] == 1):
+    if (user_state and user_state[user]):
+        if (user_state[user]['step'] == 1):
             # user mentiones interests for the first time
-            say(f"Great! Now, let's talk about attractions based on your interests. <@{user_id}>")
-            user_state[user_id]['step'] = 2
+            say(f"Great! Now, let's talk about attractions based on your interests. <@{user}>")
+            user_state[user]['step'] = 2
+            user_state[user]['interest'] = "beach"
             # call a function that responds to interests 
             # remind other user to share their interests
-            for (user in user_state):
-                if (user_state[user]['step'] == 1 and user != user_id):
-                    say(f"What about you <@{user_id}>, Please share your interests")
+            for u in user_state:
+                if (user_state[u]['step'] == 1 and u != user):
+                    say(f"What about you <@{u}>, Please share your interests")
+                elif (user_state[user]['interest'] == user_state[u]['interest']):
+                    say("Interesting, both of you got the same interest")
+                elif (user_state[user]['interest'] == user_state[u]['interest']):
+                    say("You have different interest")
         else:
             say(f"I have taken your interests earlier")
-    # if user_state and user_state["step"] == 3:
-    #     if len(conversation_states[channel]) >= 2:
-    #         # Both users have shared their interests
-    #         user_state["step"] = 4
-    #         say("Great! Now, let's talk about attractions based on your interests.")
-    #     else:
-    #         say("Thanks for sharing your interests. Please wait for the other user to share theirs.")
+    
 
-
-@app.message(re.compile(r".*(suggest|recommend|propose|put forward).*"))
-def suggest_attractions(payload, say):
-    channel = payload["channel"]
-    user_id = payload["user"]
+def handle_suggest(user, entities, sorted_intents, msg, channel, say):
     user_state = conversation_states.get(channel)
 
-    if (user_state and user_state[id]):
+    if (user_state and user_state[user]):
         say(f"Sure, I would love to share some attractions. which emirate is do you want to visit please?")
+
+def handle_budget(user, entities, sorted_intents, msg, channel, say):
+    pass
 
 
 @app.message(re.compile(r".*(dubai|abu dhabi| ajman|fujairah|sharjah|ras al khaimah| umm al quwain).*"))
