@@ -62,7 +62,7 @@ def handle_message(payload, say):
             return handle_interest(user_id, entities, sorted_intents, msg, channel, say)
         elif (intent == 'SUGGEST_INTENTS'):
             return handle_suggest(user_id, entities, sorted_intents, msg, channel, say)
-        elif (intent == 'BUDGET_INTENTS'):
+        elif (intent == 'BUDGET_INTENT'):
             return handle_budget(user_id, entities, sorted_intents, msg, channel)
         
 
